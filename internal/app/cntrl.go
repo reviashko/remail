@@ -1,7 +1,11 @@
 package app
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
+	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -11,7 +15,8 @@ import (
 // ControllerInterface interface
 type ControllerInterface interface {
 	GetUnreadMessages() ([]model.MessageInfo, error)
-	MakeSubjectIfSutable(msg *model.MessageInfo) (string, bool)
+	GetDataForSend(msg *model.MessageInfo) (string, bool, []string)
+	GenerateSubject(firstLine string) (string, bool)
 	Quit()
 	PrintStat()
 }
@@ -21,44 +26,68 @@ type Controller struct {
 	Config        *model.RemailConfig
 	EmailReceiver POP3ClientInterface
 	EmailSender   SMTPClientInterface
+	SubjectRegex  *regexp.Regexp
+	DynamicParams model.DynamicParamsInterface
 }
 
 // NewController func
-func NewController(emailReceiver POP3ClientInterface, config *model.RemailConfig, emailSender SMTPClientInterface) Controller {
-	return Controller{EmailReceiver: emailReceiver, Config: config, EmailSender: emailSender}
+func NewController(emailReceiver POP3ClientInterface, config *model.RemailConfig, emailSender SMTPClientInterface, dynamicParams model.DynamicParamsInterface) Controller {
+
+	regExp, err := regexp.Compile(`AS\d Q[0-9A-Z]+`)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	return Controller{EmailReceiver: emailReceiver, Config: config, EmailSender: emailSender, SubjectRegex: regExp, DynamicParams: dynamicParams}
 }
 
-// MakeSubjectIfSutable func
-func (c *Controller) MakeSubjectIfSutable(msg *model.MessageInfo) (string, bool) {
-	if msg.IsMultiPart {
-		return "", false
+// GenerateSubject func
+func (c *Controller) GenerateSubject(firstLine string) (string, bool) {
+
+	if strings.HasPrefix(firstLine, "AS1 Q") {
+		return strings.Replace(firstLine, "AS1", c.Config.AS1, 1), true
 	}
 
-	if strings.Contains(msg.From, "<FSM-OUTSOURCE@megafon.ru>") {
-		return msg.Subject, true
+	if strings.HasPrefix(firstLine, "AS2 Q") {
+		return strings.Replace(firstLine, "AS2", c.Config.AS2, 1), true
 	}
 
-	if strings.Contains(msg.From, "<sd@direct-credit.ru>") {
-		//msg := append([]byte(fmt.Sprintf("Subject: %s\n", m.Subject)+c.Config.MIMEHeader), m.Body...)
-		return msg.Subject, false
+	if strings.HasPrefix(firstLine, "AS3 Q") {
+		return strings.Replace(firstLine, "AS3", c.Config.AS3, 1), true
 	}
 
 	return "", false
 }
 
+// GetDataForSend func
+func (c *Controller) GetDataForSend(msg *model.MessageInfo) (string, bool, []string) {
+	if msg.IsMultiPart {
+		return "", false, []string{}
+	}
+
+	if strings.Contains(msg.From, c.Config.InputSource) {
+		return msg.Subject, true, []string{c.Config.InputForward}
+	}
+
+	if strings.Contains(msg.From, c.Config.OutputSource) {
+		scanner := bufio.NewScanner(bytes.NewReader(msg.Body))
+		scanner.Scan()
+
+		subj, finded := c.GenerateSubject(c.SubjectRegex.FindString(strings.ToUpper(scanner.Text())))
+		return subj, finded, []string{c.Config.OutputForward}
+	}
+
+	return "", false, []string{}
+}
+
 // Run func
 func (c *Controller) Run() {
-
-	to := []string{
-		//"devers@inbox.ru",
-		"3ce2744b695b43d3a6c82f7ea0c1ff5b@webim-mail.ru",
-	}
 
 	for true {
 
 		time.Sleep(time.Duration(c.Config.LoopDelaySec) * time.Second)
 
-		msgs, err := c.EmailReceiver.GetUnreadMessages()
+		msgs, err := c.EmailReceiver.GetUnreadMessages(c.DynamicParams.GetLastMsgID())
 		if err != nil {
 			fmt.Println(err.Error())
 		}
@@ -69,38 +98,30 @@ func (c *Controller) Run() {
 
 		for _, m := range msgs {
 
-			subject, isSutable := c.MakeSubjectIfSutable(&m)
+			if m.MsgID > c.DynamicParams.GetLastMsgID() {
+				c.DynamicParams.SetLastMsgID(m.MsgID)
+			}
+
+			subject, isSutable, to := c.GetDataForSend(&m)
 			if !isSutable {
 				continue
 			}
 
-			fmt.Println("id=", m.MsgID, "Subject=", m.Subject, "from=", m.From)
+			mimeHeader := c.Config.MIMEHeader
+			//if m.IsMultiPart {
+			//	mimeHeader = c.Config.ContentTypeMultipartMixed
+			//}
 
-			msg := append([]byte(fmt.Sprintf("Subject: %s\n", subject)+c.Config.MIMEHeader), m.Body...)
+			fmt.Println("id=", m.MsgID, "Subject=", subject, "from=", m.From, "to=", to)
+
+			msg := append([]byte(fmt.Sprintf("Subject: %s\n", subject)+mimeHeader), m.Body...)
 			err := c.EmailSender.SendEmail(to, msg)
 			if err != nil {
 				fmt.Println(err.Error())
 			}
 
-			/*
-				//Case for resending from megafone to webim
-				if strings.Contains(m.From, "<FSM-OUTSOURCE@megafon.ru>") && !m.IsMultiPart {
-
-					fmt.Println("id=", m.MsgID, "Subject=", m.Subject, "from=", m.From)
-
-					msg := append([]byte(fmt.Sprintf("Subject: %s\n", m.Subject)+c.Config.MIMEHeader), m.Body...)
-					err := c.EmailSender.SendEmail(to, msg)
-					if err != nil {
-						fmt.Println(err.Error())
-					}
-				}
-
-				//Case for sending from DC to megafone
-				if strings.Contains(m.From, "<sd@direct-credit.ru>") && !m.IsMultiPart {
-					fmt.Println("id=", m.MsgID, "Subject=", m.Subject, "from=", m.From)
-				}
-			*/
-
 		}
+
+		c.DynamicParams.Save()
 	}
 }

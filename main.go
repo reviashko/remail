@@ -11,15 +11,14 @@ func main() {
 	appConfig := model.RemailConfig{}
 	appConfig.InitParams()
 
-	//TODO: save proceeded emails ids
-	//TODO: init it here
-	lastMsgID := 0
+	dynParams := model.DynamicParams{}
+	dynParams.InitParams()
 
-	pop3Client := app.NewPOP3Client(appConfig.POP3Host, appConfig.POP3Port, appConfig.TLSEnabled, appConfig.Login, appConfig.Pswd, lastMsgID)
+	pop3Client := app.NewPOP3Client(appConfig.POP3Host, appConfig.POP3Port, appConfig.TLSEnabled, appConfig.Login, appConfig.Pswd)
 	defer pop3Client.Quit()
 
 	smtpClient := app.NewSMTPClient(appConfig.SMTPHost, appConfig.SMTPPort, appConfig.Login, appConfig.Pswd)
 
-	cntrl := app.NewController(&pop3Client, &appConfig, &smtpClient)
+	cntrl := app.NewController(&pop3Client, &appConfig, &smtpClient, &dynParams)
 	cntrl.Run()
 }

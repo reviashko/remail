@@ -13,20 +13,19 @@ import (
 
 // POP3ClientInterface interface
 type POP3ClientInterface interface {
-	GetUnreadMessages() ([]model.MessageInfo, error)
+	GetUnreadMessages(msgID int) ([]model.MessageInfo, error)
 	Quit()
 	PrintStat() error
 }
 
 // POP3Client struct
 type POP3Client struct {
-	MsgID   int
 	Conn    *pop3.Conn
 	Decoder *mime.WordDecoder
 }
 
 // NewPOP3Client func
-func NewPOP3Client(server string, port int, tlsEnabled bool, login string, pswd string, msgID int) POP3Client {
+func NewPOP3Client(server string, port int, tlsEnabled bool, login string, pswd string) POP3Client {
 
 	p := pop3.New(pop3.Opt{
 		Host:       server,
@@ -46,7 +45,7 @@ func NewPOP3Client(server string, port int, tlsEnabled bool, login string, pswd 
 
 	dec := mime.WordDecoder{}
 
-	return POP3Client{Conn: c, MsgID: msgID, Decoder: &dec}
+	return POP3Client{Conn: c, Decoder: &dec}
 }
 
 // Quit func
@@ -60,24 +59,23 @@ func (p *POP3Client) PrintStat() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("LastID=", p.MsgID, "total messages=", count, "size=", size)
+	fmt.Println("total messages=", count, "size=", size)
 
 	return nil
 }
 
 // GetUnreadMessages func
-func (p *POP3Client) GetUnreadMessages() ([]model.MessageInfo, error) {
+func (p *POP3Client) GetUnreadMessages(msgID int) ([]model.MessageInfo, error) {
 
 	retval := make([]model.MessageInfo, 0)
 	dec := mime.WordDecoder{}
 
-	msgs, _ := p.Conn.List(p.MsgID)
+	msgs, _ := p.Conn.List(msgID)
 	for _, m := range msgs {
-		if m.ID <= p.MsgID {
+		if m.ID <= msgID {
 			continue
 		}
 
-		p.MsgID = m.ID
 		msg, _ := p.Conn.Retr(m.ID)
 
 		subj, err := dec.DecodeHeader(msg.Header.Get("Subject"))

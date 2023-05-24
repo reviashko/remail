@@ -2,6 +2,7 @@
 *.log
 
 #daazbot
+dynParam.json
 config/data.json
 html
 logs_*
