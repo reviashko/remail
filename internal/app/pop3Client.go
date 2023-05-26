@@ -2,26 +2,22 @@ package app
 
 import (
 	"bytes"
-	"fmt"
-	"log"
 	"mime"
 
-	"github.com/reviashko/remail/model"
-
 	"github.com/knadh/go-pop3"
+	"github.com/reviashko/remail/model"
 )
 
 // POP3ClientInterface interface
 type POP3ClientInterface interface {
 	GetUnreadMessages(msgID int) ([]model.MessageInfo, error)
-	Quit()
-	PrintStat() error
 }
 
 // POP3Client struct
 type POP3Client struct {
-	Conn    *pop3.Conn
-	Decoder *mime.WordDecoder
+	Client *pop3.Client
+	Login  string
+	Pswd   string
 }
 
 // NewPOP3Client func
@@ -33,35 +29,7 @@ func NewPOP3Client(server string, port int, tlsEnabled bool, login string, pswd 
 		TLSEnabled: tlsEnabled,
 	})
 
-	// Don't forget exec Quit before app close!
-	c, err := p.NewConn()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := c.Auth(login, pswd); err != nil {
-		log.Fatal(err)
-	}
-
-	dec := mime.WordDecoder{}
-
-	return POP3Client{Conn: c, Decoder: &dec}
-}
-
-// Quit func
-func (p *POP3Client) Quit() {
-	p.Conn.Quit()
-}
-
-// PrintStat func
-func (p *POP3Client) PrintStat() error {
-	count, size, err := p.Conn.Stat()
-	if err != nil {
-		return err
-	}
-	fmt.Println("total messages=", count, "size=", size)
-
-	return nil
+	return POP3Client{Client: p, Login: login, Pswd: pswd}
 }
 
 // GetUnreadMessages func
@@ -70,13 +38,24 @@ func (p *POP3Client) GetUnreadMessages(msgID int) ([]model.MessageInfo, error) {
 	retval := make([]model.MessageInfo, 0)
 	dec := mime.WordDecoder{}
 
-	msgs, _ := p.Conn.List(msgID)
+	connect, err := p.Client.NewConn()
+	if err != nil {
+		return retval, err
+	}
+	defer connect.Quit()
+
+	if err := connect.Auth(p.Login, p.Pswd); err != nil {
+		return retval, err
+	}
+
+	msgs, _ := connect.List(0)
+	//msgs, _ := connect.List(msgID)
 	for _, m := range msgs {
 		if m.ID <= msgID {
 			continue
 		}
 
-		msg, _ := p.Conn.Retr(m.ID)
+		msg, _ := connect.Retr(m.ID)
 
 		subj, err := dec.DecodeHeader(msg.Header.Get("Subject"))
 		if err != nil {
@@ -85,17 +64,15 @@ func (p *POP3Client) GetUnreadMessages(msgID int) ([]model.MessageInfo, error) {
 		}
 
 		from := msg.Header.Get("From")
-		multiPart := msg.MultipartReader()
+		to := msg.Header.Get("To")
 
-		// multi-part body:
-		// https://github.com/emersion/go-message/blob/master/example_test.go#L12
 		buf := new(bytes.Buffer)
 		_, err = buf.ReadFrom(msg.Body)
 		if err != nil {
-			log.Fatal(err)
+			return retval, err
 		}
 
-		retval = append(retval, model.MessageInfo{MsgID: m.ID, Subject: subj, IsMultiPart: multiPart != nil, From: from, Body: buf.Bytes()})
+		retval = append(retval, model.MessageInfo{MsgID: m.ID, To: to, Subject: subj, From: from, Body: buf.Bytes()})
 	}
 
 	return retval, nil

@@ -38,7 +38,7 @@ func NewController(emailReceiver POP3ClientInterface, config *model.RemailConfig
 		log.Fatal(err.Error())
 	}
 
-	return Controller{EmailReceiver: emailReceiver, Config: config, EmailSender: emailSender, SubjectRegex: regExp, DynamicParams: dynamicParams}
+	return Controller{Config: config, EmailSender: emailSender, SubjectRegex: regExp, DynamicParams: dynamicParams, EmailReceiver: emailReceiver}
 }
 
 // GenerateSubject func
@@ -61,16 +61,9 @@ func (c *Controller) GenerateSubject(firstLine string) (string, bool) {
 
 // GetDataForSend func
 func (c *Controller) GetDataForSend(msg *model.MessageInfo) (string, bool, []string) {
-	if msg.IsMultiPart {
-		return "", false, []string{}
-	}
 
-	if strings.Contains(msg.From, c.Config.InputSource) {
-		return msg.Subject, true, []string{c.Config.InputForward}
-	}
-
-	if strings.Contains(msg.From, c.Config.OutputSource) {
-		scanner := bufio.NewScanner(bytes.NewReader(msg.Body))
+	if strings.Contains(msg.From, c.Config.OutputSource) && strings.Contains(msg.To, c.Config.OutputSource) {
+		scanner := bufio.NewScanner(bytes.NewReader([]byte(msg.Body)))
 		scanner.Scan()
 
 		subj, finded := c.GenerateSubject(c.SubjectRegex.FindString(strings.ToUpper(scanner.Text())))
@@ -89,7 +82,8 @@ func (c *Controller) Run() {
 
 		msgs, err := c.EmailReceiver.GetUnreadMessages(c.DynamicParams.GetLastMsgID())
 		if err != nil {
-			fmt.Println(err.Error())
+			fmt.Println("GetUnreadMessages", err.Error())
+			continue
 		}
 
 		if len(msgs) == 0 {
@@ -107,14 +101,9 @@ func (c *Controller) Run() {
 				continue
 			}
 
-			mimeHeader := c.Config.MIMEHeader
-			//if m.IsMultiPart {
-			//	mimeHeader = c.Config.ContentTypeMultipartMixed
-			//}
-
 			fmt.Println("id=", m.MsgID, "Subject=", subject, "from=", m.From, "to=", to)
 
-			msg := append([]byte(fmt.Sprintf("Subject: %s\n", subject)+mimeHeader), m.Body...)
+			msg := append([]byte(fmt.Sprintf("Subject: %s\n", subject)+c.Config.MIMEHeader), m.Body...)
 			err := c.EmailSender.SendEmail(to, msg)
 			if err != nil {
 				fmt.Println(err.Error())

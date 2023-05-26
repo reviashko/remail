@@ -8,23 +8,21 @@ import (
 
 // RemailConfig struct
 type RemailConfig struct {
-	POP3Host                  string
-	POP3Port                  int
-	SMTPHost                  string
-	SMTPPort                  int
-	TLSEnabled                bool
-	Login                     string
-	Pswd                      string
-	LoopDelaySec              int
-	MIMEHeader                string
-	AS1                       string
-	AS2                       string
-	AS3                       string
-	InputForward              string
-	InputSource               string
-	OutputForward             string
-	OutputSource              string
-	ContentTypeMultipartMixed string
+	POP3Host      string
+	POP3Port      int
+	SMTPHost      string
+	SMTPPort      int
+	TLSEnabled    bool
+	Login         string
+	Pswd          string
+	LoopDelaySec  int
+	MIMEHeader    string
+	AS1           string
+	AS2           string
+	AS3           string
+	OutputForward string
+	OutputSource  string
+	OutputDescr   string
 }
 
 // InitParams func
