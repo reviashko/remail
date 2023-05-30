@@ -8,18 +8,9 @@ html
 logs_*
 nohup.out
 *.csv
-tmpConfig*.json
-test
 read.me
-shard
-/bitconce
-/checksreminder
-/sipstate
 *.txt
-payments_*
-approve_*
 main
-crypto
 remail
 
 # Unit test report
