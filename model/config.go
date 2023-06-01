@@ -16,7 +16,8 @@ type RemailConfig struct {
 	Login         string
 	Pswd          string
 	LoopDelaySec  int
-	MIMEHeader    string
+	UTF8Header    string
+	WIN1251Header string
 	AS1           string
 	AS2           string
 	AS3           string

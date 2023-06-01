@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/reviashko/remail/internal/app"
-
 	"github.com/reviashko/remail/model"
 )
 
