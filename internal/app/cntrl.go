@@ -5,12 +5,12 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"mime"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/reviashko/remail/model"
-	"golang.org/x/text/encoding/charmap"
 )
 
 // ControllerInterface interface
@@ -18,8 +18,7 @@ type ControllerInterface interface {
 	GetUnreadMessages() ([]model.MessageInfo, error)
 	GetDataForSend(msg *model.MessageInfo) (string, bool, []string)
 	GenerateSubject(firstLine string) (string, bool)
-	Quit()
-	PrintStat()
+	LoopFunc() error
 }
 
 // Controller struct
@@ -68,12 +67,47 @@ func (c *Controller) GetDataForSend(msg *model.MessageInfo) (string, bool, []str
 		scanner.Scan()
 
 		subj, finded := c.GenerateSubject(c.SubjectRegex.FindString(strings.ToUpper(scanner.Text())))
-
 		return subj, finded, []string{c.Config.OutputForward}
-		//return subj, finded, []string{"devers@inbox.ru"}
 	}
 
 	return "", false, []string{}
+}
+
+// LoopFunc func
+func (c *Controller) LoopFunc() error {
+
+	msgs, err := c.EmailReceiver.GetUnreadMessages(c.DynamicParams.GetLastMsgID())
+	if err != nil {
+		return err
+	}
+
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	for _, m := range msgs {
+
+		if m.MsgID > c.DynamicParams.GetLastMsgID() {
+			c.DynamicParams.SetLastMsgID(m.MsgID)
+		}
+
+		subject, isSutable, to := c.GetDataForSend(&m)
+		if !isSutable {
+			continue
+		}
+
+		t := time.Now()
+		fmt.Printf("[%02d-%02dT%02d:%02d] id=%d subj=[%s] from=[%s] to=[%s]\n", t.Day(), t.Month(), t.Hour(), t.Minute(), m.MsgID, subject, m.From, to)
+
+		m.Subject = mime.QEncoding.Encode("utf-8", subject)
+		err := c.EmailSender.SendEmail(to, m.ToBytes())
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+
+	}
+
+	return c.DynamicParams.Save()
 }
 
 // Run func
@@ -83,57 +117,10 @@ func (c *Controller) Run() {
 
 		time.Sleep(time.Duration(c.Config.LoopDelaySec) * time.Second)
 
-		msgs, err := c.EmailReceiver.GetUnreadMessages(c.DynamicParams.GetLastMsgID())
+		err := c.LoopFunc()
 		if err != nil {
-			fmt.Println("GetUnreadMessages", err.Error())
-			continue
+			t := time.Now()
+			fmt.Printf("[%02d-%02dT%02d:%02d] MainLoop=[%s]\n", t.Day(), t.Month(), t.Hour(), t.Minute(), err.Error())
 		}
-
-		if len(msgs) == 0 {
-			continue
-		}
-
-		for _, m := range msgs {
-
-			if m.MsgID > c.DynamicParams.GetLastMsgID() {
-				c.DynamicParams.SetLastMsgID(m.MsgID)
-			}
-
-			subject, isSutable, to := c.GetDataForSend(&m)
-			if !isSutable {
-				continue
-			}
-
-			dec := charmap.Windows1251.NewEncoder()
-
-			newBody := make([]byte, len(subject)*2)
-			n, _, err2 := dec.Transform(newBody, []byte(subject), false)
-			if err2 != nil {
-				panic(err2)
-			}
-			subject = fmt.Sprintf("%s", newBody[:n])
-
-			newBody2 := make([]byte, len(m.Body)*2)
-			n2, _, err2 := dec.Transform(newBody2, []byte(m.Body), false)
-			if err2 != nil {
-				panic(err2)
-			}
-			mm := fmt.Sprintf("%s", newBody2[:n2])
-
-			fmt.Println("id=", m.MsgID, "Subject=", subject, "from=", m.From, "to=", to)
-
-			msg := append([]byte(fmt.Sprintf("Subject: %s\n", subject)+c.Config.WIN1251Header), mm...)
-
-			//fmt.Println("=====> Subject=", subject, "isUTF8=", utf8.Valid([]byte(fmt.Sprintf("Subject: %s\n", subject)+c.Config.MIMEHeader)))
-			fmt.Println("=====> msg=", string(msg))
-
-			err := c.EmailSender.SendEmail(to, msg)
-			if err != nil {
-				fmt.Println(err.Error())
-			}
-
-		}
-
-		c.DynamicParams.Save()
 	}
 }

@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"mime"
 
 	"github.com/knadh/go-pop3"
 	"github.com/reviashko/remail/model"
@@ -36,7 +35,6 @@ func NewPOP3Client(server string, port int, tlsEnabled bool, login string, pswd 
 func (p *POP3Client) GetUnreadMessages(msgID int) ([]model.MessageInfo, error) {
 
 	retval := make([]model.MessageInfo, 0)
-	dec := mime.WordDecoder{}
 
 	connect, err := p.Client.NewConn()
 	if err != nil {
@@ -48,20 +46,14 @@ func (p *POP3Client) GetUnreadMessages(msgID int) ([]model.MessageInfo, error) {
 		return retval, err
 	}
 
+	// TODO: need to avoid reading all messages
 	msgs, _ := connect.List(0)
-	//msgs, _ := connect.List(msgID)
 	for _, m := range msgs {
 		if m.ID <= msgID {
 			continue
 		}
 
 		msg, _ := connect.Retr(m.ID)
-
-		subj, err := dec.DecodeHeader(msg.Header.Get("Subject"))
-		if err != nil {
-			//TODO: need to manage to this
-			continue
-		}
 
 		from := msg.Header.Get("From")
 		to := msg.Header.Get("To")
@@ -72,7 +64,7 @@ func (p *POP3Client) GetUnreadMessages(msgID int) ([]model.MessageInfo, error) {
 			return retval, err
 		}
 
-		retval = append(retval, model.MessageInfo{MsgID: m.ID, To: to, Subject: subj, From: from, Body: buf.Bytes()})
+		retval = append(retval, model.MessageInfo{MsgID: m.ID, To: to, From: from, Body: buf.Bytes()})
 	}
 
 	return retval, nil
